@@ -1,14 +1,17 @@
 /*
-# This file is part of Primer Pooler v1.41 (c) 2016-18 Silas S. Brown.  For Wen.
-# 
-# This program is free software; you can redistribute and
-# modify it under the terms of the General Public License
-# as published by the Free Software Foundation; either
-# version 3 of the License, or any later version.
-#
-# This program is distributed in the hope that it will be
-# useful, but WITHOUT ANY WARRANTY.  See the GNU General
-# Public License for more details.
+This file is part of Primer Pooler (c) Silas S. Brown.  For Wen.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 /* load-common.c: file-loading code common to all widths,
    generally just utils & look-before-loading.
@@ -61,7 +64,8 @@ int numPrimers(const char *fileData, int *maxLen,int *numTags) {
   if(!r) { fputs("No sequences found in this file\n",stderr); return -1; }
   fprintf(stderr,"%d primers + %d tags\nShortest primer length is %d bases; longest is %d\n",r,*numTags,minL,maxL);
   if(maxTag) {
-    minL+=maxTag; maxL+=maxTag;
+    // minL+=maxTag; // not needed as we won't be using minL again
+    maxL+=maxTag;
     fprintf(stderr,"(max tag length is %d, so max tagged primer length is %d)\n",maxTag,maxL); // TODO: longest *actual* tagged primer length might depend on *which* tag is added to which primer; would need more accounting if want to report that here, but this should be OK for allocation purposes except in the extremely rare case where this maxL exceeds checkLenLimit below but would not do so if accounted more carefully
   }
   int checkLenLimit(int maxLen); // bit-common.c

@@ -1,14 +1,17 @@
 /*
-# This file is part of Primer Pooler v1.41 (c) 2016-18 Silas S. Brown.  For Wen.
-# 
-# This program is free software; you can redistribute and
-# modify it under the terms of the General Public License
-# as published by the Free Software Foundation; either
-# version 3 of the License, or any later version.
-#
-# This program is distributed in the hope that it will be
-# useful, but WITHOUT ANY WARRANTY.  See the GNU General
-# Public License for more details.
+This file is part of Primer Pooler (c) Silas S. Brown.  For Wen.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 #include <stdio.h>
 #include <string.h>
@@ -42,15 +45,53 @@ void getAns(const char *qu, char *buf,size_t size) {
 #ifdef __linux__
       if(!workedBefore) {
         /* Probably we were launched by a graphical
-           desktop that didn't give us a terminal. */
+           desktop that didn't give us a terminal.
+           
+           (Windows and Mac automatically start a terminal
+           if we're launched via the graphical desktop,
+           but not all GNU/Linux graphical desktops do so)
+        */
         puts("Early EOF on stdin: assuming a launcher problem.\nTrying to run argv[0] in a terminal.");
-        static char* programs[]={
-            "/usr/bin/lxterminal","/usr/bin/rxvt",
-            "/usr/bin/xterm",
-            "/usr/bin/gnome-terminal",NULL};
-        int i;
-        for(i=0; programs[i]; i++)
-          execl(programs[i],programs[i],"-e",argv0,NULL);
+        /* 1. Try to run in lxterminal.  Care is needed
+           if any part of argv0 contains a space etc, as
+           lxterminal will split on space when we don't
+           want it to.  This workaround uses multiple
+           levels of quoting, unless argv0 is simple so as
+           not to require it. */
+        static const char *okChars="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_-./=";
+        if(!argv0[strspn(argv0,okChars)])
+          execl("/usr/bin/lxterminal","/usr/bin/lxterminal","-e",argv0,NULL);
+        else {
+          char *buf=malloc(strlen(argv0)*4+12);
+          if(buf) {
+            memcpy(buf,"'$'\"'\"'",6);
+            int i,w=7; for(i=0; argv0[i]; i++) {
+              if(strchr(okChars,argv0[i]))
+                buf[w++]=argv0[i];
+              else w += sprintf(buf+w,"\\x%02x",argv0[i]);
+            }
+            strcpy(buf+w,"'\"'\"");
+            execl("/usr/bin/lxterminal",
+                  "/usr/bin/lxterminal","-e",
+                  "/bin/bash","-c",buf,NULL);
+            free(buf);
+          }
+        }
+        /* 2. Try gnome-terminal.  This doesn't need
+           quoting, as long as we use its -x not its -e */
+        execl("/usr/bin/gnome-terminal",
+              "/usr/bin/gnome-terminal","-x",
+              argv0,NULL);
+        /* 3. Try rxvt and xterm.  These programs don't
+           need us to do the above complex quoting.
+           (Weren't put first because lxterminal and
+           gnome-terminal is more likely to be configured
+           with the user's preferred fonts etc.)
+        */
+        execl("/usr/bin/rxvt","/usr/bin/rxvt","-e",
+              argv0,NULL);
+        execl("/usr/bin/xterm","/usr/bin/xterm","-e",
+              argv0,NULL);
         puts("... failed; bailing out.");
       }
 #endif
@@ -68,13 +109,7 @@ void getAns(const char *qu, char *buf,size_t size) {
       } continue;
     }
     buf[l]=0;
-    if(!strcmp(buf,"tell me a joke"))
-#if defined(_WIN64) || defined(_WIN32)
- puts("What, even though your lab is afflicted by the Microsoft endemic?\nWindows programs aren't supposed to contain jokes. Try another type of computer.");
-#else
- puts("This program is protected by the GPL, so don't sue me, and DEFINITELY don't\nsend me your lab's latest radioactive toxic pathogen if you can't get it to\nwork.  Liability lawsuits can be bad, but pathology labs are scaaaaary.");
-#endif
-    else if(*buf) { /* just check it's all ASCII */
+    if(*buf) { /* just check it's all ASCII */
       char *p;
       for(p=buf; !(*p&0x80); p++)
         if(!*p) return;
@@ -335,7 +370,11 @@ static float getKelvin0(const char *qu) {
     if (!tried_F && getYN("Seriously, Fahrenheit? (y/n): ")) return F_to_kelvin(r);
     if (!tried_K && getYN("Kelvin?? (y/n): ")) return r;
     if (!tried_R && getYN("Rankine?? (y/n): ")) return R_to_kelvin(r);
-    if(getYN("Randall Munroe's joke 'Felsius' unit??? (y/n): ")) return E_to_kelvin(r);
+    if(getYN("Reaumur?? (y/n): ")) return C_to_kelvin(r*1.25);
+    if(getYN("Romer?? (y/n): ")) return C_to_kelvin((r-7.5)*40/21);
+    if(getYN("Delisle?? (y/n): ")) return C_to_kelvin(100-r*2/3);
+    if(getYN("Average translational kinetic energy of a gas in zeptojoules?? (y/n): ")) return r*2/3/.01380649;
+    if(getYN("Randall Munroe's joke 'Felsius' unit??? (y/n): ")) return C_to_kelvin((r-16.0)*5.0/7.0);
     puts("I give up.  You'll have to pick a unit that I know.");
   }
 }
@@ -447,7 +486,15 @@ int main(int argc, char *argv[]) {
     if(getYN("Would you like to run interactively? (y/n): ")) {
       signal(SIGABRT, assertHandler);
       do {
-        puts("Please enter the name of the primers file to read.\nI'm expecting a text file in multiple-sequence FASTA format;\nit is allowed to use degenerate bases.\nNames of amplicons' primers should end with F or R, and otherwise match.\n(Optionally include Taq probes etc ending with P/Q/etc.\nAll names differing in only the last letter will be kept in the same pool.)\nOptionally include tags to apply to all primers: >tagF and >tagR\n(you can change these mid-file if you want to vary your tags)"); // tags are applied based on their last letter (tagN)
+        puts("Please enter the name of the primers file to read.\n"
+             "I'm expecting a text file in multiple-sequence FASTA format;\n"
+             "it is allowed to use degenerate bases.\n"
+             "Names of amplicons' primers should end with F or R, and otherwise match.\n"
+             "(Optionally include Taq probes etc ending with P/Q/etc.\n"
+             "All names differing in only the last letter will be kept in the same pool.\n"
+             "To force a pool choice, put @2: at start of primer name for pool 2.)\n"
+             "Optionally include tags to apply to all primers: >tagF and >tagR\n"
+             "(you can change these mid-file if you want to vary your tags)"); // tags are applied based on their last letter (tagN)
         AllPrimers ap=loadFASTA(getFile("File name: ","rb",NULL,NULL));
         if(ap.np>0) {
           float *table = getDeltaG(ap.maxLen);
@@ -468,13 +515,14 @@ int main(int argc, char *argv[]) {
           if(getYN("Shall I split this into pools for you? (y/n): ")) {
             int nAmplicons=0; char *overlappingAmplicons=NULL; int *primerNoToAmpliconNo=NULL;
             if(getYN("Shall I check the amplicons for overlaps in the genome? (y/n): ")) {
-              puts("OK, I need to see a genome file in .2bit or .fa format.\n(I'll ignore variant chromosomes i.e. sequences with _ or - in their names.)");
+              puts("OK, I need to see a genome file in .2bit or .fa format.");
               FILE *f=getFile("File name: ","rb","hg38.2bit","http://hgdownload.cse.ucsc.edu/downloads.html"); // if human-specific, http://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/
+              int ignoreVars = getYN("Do you want me to ignore variant chromosomes\ni.e. sequences with _ or - in their names? (y/n): ");
               puts("Please enter the maximum amplicon length (bp), for example 220\n"); // bp = base pairs
               int ampLen = getNum("Maximum amplicon length: ",0);
               int multiplx = getYN("Do you want to write a file of amplicons for MultiPLX as well? (y/n): ");
               FILE *allAmps = (multiplx || getYN("or do you want to write a file with the locations of all amplicons? (y/n): "))?getFile("File name for all amplicon locations: ","w",NULL,NULL):NULL;
-              overlappingAmplicons=GetOverlappingAmplicons(ap,f,&primerNoToAmpliconNo,&nAmplicons,ampLen,allAmps,multiplx);
+              overlappingAmplicons=GetOverlappingAmplicons(ap,f,&primerNoToAmpliconNo,&nAmplicons,ampLen,allAmps,multiplx,ignoreVars);
             }
             PS_cache cache=PS_precalc(ap,table,overlappingAmplicons,primerNoToAmpliconNo,nAmplicons);
             int seedless = -1;
@@ -482,6 +530,8 @@ int main(int argc, char *argv[]) {
             printf("Computer suggestion is %d pools.\nYou can go with this, or you can pick your own number.\n",suggest_num_pools(ap,cache,table));
             do {
               int nPools = getNum("How many pools? ",0);
+              if(nPools<=1) { puts("Cannot divide into fewer than 2 pools."); continue; }
+              else if(nPools<cache.fix_min_pools) { printf("Must be at least %d pools, because you have primers with names starting @%d:\n",cache.fix_min_pools,cache.fix_min_pools); continue; }
               int average = 2*averagePairsRoundUp(ap.np,nPools); /* important to round UP, for the getNum below */
               puts("Setting a maximum size of each pool can make the pools more even.");
               suggestMax(nPools,average,ap.np);
@@ -536,6 +586,7 @@ int main(int argc, char *argv[]) {
     AllPrimers ap={0,0,0,0,0,0,0};
     int maxAmpliconLen = 220; // also in help text
     int seedless = 0, maxCount = 0, suggestPools = 0;
+    int ignoreVars = 1; // (default 1 for drop-in compatibility with v1.61 and below, which didn't have the option to turn it off)
     int i; for(i=1; i<argc; i++) {
       if(!strcmp(argv[i],"--help") || !strcmp(argv[i],"/help") || !strcmp(argv[i],"/?")) {
         printf("%s [options] FASTA-file\n",arg0());
@@ -549,9 +600,10 @@ int main(int argc, char *argv[]) {
         puts("(Set prefix to a single hyphen (-) to write all to stdout)");
         puts("--max-count=NUM (per pool)");
         puts("--genome=PATH to check amplicons for overlaps in the genome (.2bit or .fa)");
+        puts("--scan-variants scans variant sequences in the genome too (_ and - in names)");
         puts("--amp-max=LENGTH sets max amplicon length for the overlap check (default 220)"); /* v1.35 added 0 = unlimited, not available in interactive version */
         puts("--multiplx=FILE (write MultiPLX input after the --genome stage)");
-        puts("--seedless (don't seed random number generator, and use the same\n           one across all operating systems for reproducibility)");
+        puts("--seedless (don't seed random number generator)");
         exit(0);
       } else if(!strcmp(argv[i],"--version")) {
         /* TODO: document this option under --help ? */
@@ -591,6 +643,8 @@ int main(int argc, char *argv[]) {
         seedless = 1;
       else if(!strcmp(argv[i],"--suggest-pools"))
         suggestPools = 1;
+      else if(!strcmp(argv[i],"--scan-variants"))
+        ignoreVars = 0;
       else if(!strcmp(argv[i],"--pools")) numPools = -1;
       else if(!strncmp(argv[i],"--pools=",sizeof("--pools=")-1)) {
         char *p = argv[i]+sizeof("--pools=")-1;
@@ -638,9 +692,13 @@ int main(int argc, char *argv[]) {
           exit(1); /* no need to free memory */
         }
       }
+      if(numPools==1) { /* we don't want "division by zero" in pool-split.c */
+        fputs("Cannot divide into fewer than 2 pools\n",stderr);
+        exit(1); /* no need to free memory */
+      }
       int nAmplicons=0; char *overlappingAmplicons=NULL; int *primerNoToAmpliconNo=NULL;
       if(genomeFile)
-        overlappingAmplicons=GetOverlappingAmplicons(ap,genomeFile,&primerNoToAmpliconNo,&nAmplicons,maxAmpliconLen,multiplxFile,1); /* TODO: support ,0 here for just an all-amplicon-locations-file from command line? */
+        overlappingAmplicons=GetOverlappingAmplicons(ap,genomeFile,&primerNoToAmpliconNo,&nAmplicons,maxAmpliconLen,multiplxFile,1 /* TODO: support 0 here for just an all-amplicon-locations-file from command line? */, ignoreVars);
       if(numPools || suggestPools) {
         PS_cache cache=PS_precalc(ap,table,overlappingAmplicons,primerNoToAmpliconNo,nAmplicons);
         if(suggestPools || numPools<0) {

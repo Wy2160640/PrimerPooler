@@ -1,14 +1,17 @@
 /*
-# This file is part of Primer Pooler v1.41 (c) 2016-18 Silas S. Brown.  For Wen.
-# 
-# This program is free software; you can redistribute and
-# modify it under the terms of the General Public License
-# as published by the Free Software Foundation; either
-# version 3 of the License, or any later version.
-#
-# This program is distributed in the hope that it will be
-# useful, but WITHOUT ANY WARRANTY.  See the GNU General
-# Public License for more details.
+This file is part of Primer Pooler (c) Silas S. Brown.  For Wen.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,7 +104,8 @@ static inline ULL valueOfReduction(ULL from,ULL to) {
      as well just return 0, since we won't perform any
      value-based moves that don't have positive reductions
   */
-  if(to > from) return 0; if(!to) return from;
+  if(to > from) return 0;
+  if(!to) return from;
   if(maxScoreOfBadness(from) == maxScoreOfBadness(to)) {
     /* 'from-to' will be a 48-bit value, and if get here
        then the high 16 bits of 'to' will be <= 'from',
@@ -274,6 +278,11 @@ static int* merge_scores_of_stuckTogether_primers(AllPrimers ap,int *scores) {
   int *primerMove_depends_on=malloc(ap.np*sizeof(int));
   if(!primerMove_depends_on) return NULL;
   memset(primerMove_depends_on,0xFF,ap.np*sizeof(int));
+  char *pairedOK=malloc(ap.np);
+  if(!pairedOK) {
+    free(primerMove_depends_on); return NULL;
+  }
+  memset(pairedOK,0,ap.np);
   int doneMerge = 0;
   for(i=0; i<ap.np; i++) for(j=i; j<ap.np; j++) {
       if(i!=j && primerMove_depends_on[i]==-1 && primerMove_depends_on[j]==-1 && should_stick_together(ap,i,j)) {
@@ -300,16 +309,40 @@ static int* merge_scores_of_stuckTogether_primers(AllPrimers ap,int *scores) {
           updateMax(Sip++,*kp); *kp++=0;
         }
         primerMove_depends_on[j] = i;
-        doneMerge = 1;
+        doneMerge = pairedOK[i] = pairedOK[j] = 1;
       }
       p++;
     }
-  if(!doneMerge) {
-    /* same check as in amplicons.c (see comment there)
-       in case that step was missed */
+  if(doneMerge) {
+    /* just check for lone primers, usually a bad sign */
+    for(i=0; i<ap.np; i++) if(!pairedOK[i]) fprintf(stderr,"Warning: ungrouped primer %s\n",ap.names[i]);
+  } else {
+    /* same message as in amplicons.c (see comment there)
+       in case overlap-check was missed */
     fputs("WARNING: No primers are paired!\nPlease end your forward primers with -F\nand your reverse primers with -R or -B as instructed\n",stderr);
   }
-  return primerMove_depends_on;
+  free(pairedOK); return primerMove_depends_on;
+}
+
+static inline int should_stick_to_pool(AllPrimers ap,int i) {
+  /* if the user wants some primers to be fixed to
+     specific pools (and we move the rest around) */
+  const char *n=ap.names[i];
+  if(*n == '@' && *(++n)>='0' && *n<='9') {
+    char *end; int pool=(int)strtol(n,&end,10);
+    if(*end==':') {
+      /* we have a valid @<pool number>: */
+      return pool-1; /* (internally start at 0) */
+    }
+  }
+  return -1;
+}
+static int* pre_fix_primers_to_pools(AllPrimers ap) {
+  int *fix_to_pool=malloc(ap.np*sizeof(int)), i;
+  if(!fix_to_pool) return NULL;
+  for(i=0; i<ap.np; i++)
+    fix_to_pool[i] = should_stick_to_pool(ap,i);
+  return fix_to_pool;
 }
 
 static void saturate_scores_of_overlapping_primers(int *scores,const char *overlappingAmplicons,const int *primerNoToAmpliconNo,int nAmplicons,int np) {
@@ -349,17 +382,36 @@ enum { s_KeepGoing = 0, s_ccPressed, s_tooManyIters };
 static volatile int stop_state;
 static void intHandler(int s) { stop_state = s_ccPressed; }
 
-static void randomise_pools(int np,const int *primerMove_depends_on,const int *scores,int nPools,int *pools,ULL *bContrib,int *poolCounts,int maxCount) {
+static void randomise_pools(int np,const int *primerMove_depends_on,const int *fix_to_pool,const int *scores,int nPools,int *pools,ULL *bContrib,int *poolCounts,int maxCount) {
   /* initialise to random distribution of pools, but note
      primerMove_depends_on and maxCount when doing this.
      Also initialise bContrib.  */
   int i; memset(poolCounts,0,nPools*sizeof(int));
+  /* First set all fixed-pool primers in place,
+     before randomising the others around them */
   for(i=0; i<np; i++)
     if(primerMove_depends_on[i] == -1) {
+      int pool = fix_to_pool[i];
+      if(pool != -1) {
+        if(maxCount && poolCounts[pool]==maxCount && !(maxCount==1 && nPools==np)) {
+          /* (last part of that condition detects call by suggest_num_pools,
+             where it's OK if fixed-pool primers make us exceed 1 per pool) */
+          fprintf(stderr, "randomise_pools ERROR: maxCount too small for fixed primer in pool %d\n",fix_to_pool[i]);
+          abort();
+        } pools[i]=pool; poolCounts[pool]++;
+      }
+    }
+  for(i=0; i<np; i++)
+    if(primerMove_depends_on[i] == -1 && fix_to_pool[i] == -1) {
       int pool = ThreadRand() % nPools;
-      while(maxCount && poolCounts[pool]==maxCount) {
+      int origPool = pool;
+      while(maxCount && poolCounts[pool]>=maxCount) {
         pool++; /* not very random but it'll do for now */
         if(pool==nPools) pool=0;
+        if(pool==origPool) {
+          fprintf(stderr, "randomise_pools ERROR: maxCount too small, can't fit\n");
+          abort();
+        }
       } pools[i]=pool; poolCounts[pool]++;
     }
   for(i=0; i<np; i++)
@@ -369,14 +421,17 @@ static void randomise_pools(int np,const int *primerMove_depends_on,const int *s
   memset(bContrib,0,np*nPools*sizeof(ULL));
   for(i=0; i<np; i++) badnessContrib(i,scores,np,nPools,pools,bContrib);
 }
- 
-static int* initMoves(int *numMoves,int np,int nPools,const int *primerMove_depends_on) {
+
+static int* initMoves(int *numMoves,int np,int nPools,const int *primerMove_depends_on,const int *fix_to_pool) {
   if(nPools <= 1) return NULL;
   int *moves=malloc(np*(nPools-1)*sizeof(int));
   if(moves) {
     int *movesP = moves, i;
-    for(i=0; i<np*(nPools-1); i++)
-      if(primerMove_depends_on[primerOfMove(i,nPools)]==-1) *movesP++ = i;
+    for(i=0; i<np*(nPools-1); i++) {
+      int primer = primerOfMove(i,nPools);
+      if(primerMove_depends_on[primer]==-1
+         && fix_to_pool[primer]==-1) *movesP++ = i;
+    }
     *numMoves = movesP-moves;
     moves = memTrim(moves,movesP);
   } return moves;
@@ -388,7 +443,7 @@ typedef bit128 ThreadMask;
 typedef ULL ThreadMask;
 #endif
 
-static void poolsplit_thread(const int* shared_moves,AllPrimers ap,int nPools,int numMoves,const int* primerMove_depends_on,const int* scores,time_t limitTime,int *bestPools,const float* table, int* bestPools_init_yet,ULL* gBadLast,long *totalIterations,time_t *lastOutputTime,int *overlaps,int* just_printed_counts,ThreadMask* threads_needing_to_reset_iter,int maxCount) {
+static void poolsplit_thread(const int* shared_moves,AllPrimers ap,int nPools,int numMoves,const int* primerMove_depends_on,const int* fix_to_pool,const int* scores,time_t limitTime,int *bestPools,const float* table, int* bestPools_init_yet,ULL* gBadLast,long *totalIterations,time_t *lastOutputTime,int *overlaps,int* just_printed_counts,ThreadMask* threads_needing_to_reset_iter,int maxCount) {
   /* This is the inner part of split_into_pools.
      Multiple instances may be called in parallel. */
   int iter = 0, willContinue=1;
@@ -420,7 +475,7 @@ static void poolsplit_thread(const int* shared_moves,AllPrimers ap,int nPools,in
   int max_iterations = 10000000 /* TODO: customise? profile? (but low priority as we have an interrupt mechanism) */
     / (omp_get_num_threads() > 10 ? 10 : omp_get_num_threads()); /* TODO: customise this "10" as well? (it's maxMoves / minMoves) */
   while(willContinue) {
-    randomise_pools(ap.np,primerMove_depends_on,scores,nPools,pools,bContrib,poolCounts,maxCount);
+    randomise_pools(ap.np,primerMove_depends_on,fix_to_pool,scores,nPools,pools,bContrib,poolCounts,maxCount);
     for(; ; iter++) {
       #if USE_QSORT
       #if PARALLELIZE_POOLSPLIT && defined(_OPENMP)
@@ -528,17 +583,32 @@ PS_cache PS_precalc(AllPrimers ap,const float *table,const char *overlappingAmpl
   r.scores = table ? dGtriangle(ap,table) : triangle(ap);
   removeTags(ap);
   r.primerMove_depends_on = merge_scores_of_stuckTogether_primers(ap,r.scores);
-  if(memFail(r.scores,r.primerMove_depends_on,_memFail)) r.scores = NULL;
-  else saturate_scores_of_overlapping_primers(r.scores,overlappingAmplicons,primerNoToAmpliconNo,nAmplicons,ap.np);
+  r.fix_to_pool = pre_fix_primers_to_pools(ap);
+  if(memFail(r.scores,r.primerMove_depends_on,r.fix_to_pool,_memFail)) r.scores = NULL;
+  else {
+    saturate_scores_of_overlapping_primers(r.scores,overlappingAmplicons,primerNoToAmpliconNo,nAmplicons,ap.np);
+    r.fix_min_pools = 2;
+    int i; for(i=0; i<ap.np; i++) if(r.fix_to_pool[i]>=r.fix_min_pools) r.fix_min_pools=r.fix_to_pool[i]+1;
+  }
   return r;
 }
-void PS_free(PS_cache c) { if(c.scores) { free(c.scores); free(c.primerMove_depends_on); } }
+void PS_free(PS_cache c) {
+  if(c.scores) {
+    free(c.scores);
+    free(c.primerMove_depends_on);
+    free(c.fix_to_pool);
+  }
+}
 
 int* split_into_pools(AllPrimers ap,int nPools,int timeLimit,PS_cache cache,int seedless,const float *table,int maxCount) {
   int *scores = cache.scores; if(!scores) return NULL;
   int *primerMove_depends_on = cache.primerMove_depends_on;
+  int *fix_to_pool = cache.fix_to_pool;
+  {
+    if(nPools<cache.fix_min_pools) { fprintf(stderr,"ERROR: @%d:primers need at least %d pools, but only got %d\n",cache.fix_min_pools,cache.fix_min_pools,nPools); return NULL; }
+  }
   if(maxCount) { int denom=0,i; for(i=0; i<ap.np; i++) if(primerMove_depends_on[i]!=-1) denom++; maxCount=maxCount*denom/ap.np; if(!maxCount) maxCount=1; } /* pairs */
-  int numMoves=0,*shared_moves=initMoves(&numMoves,ap.np,nPools,primerMove_depends_on); /* =0 to stop warnings on old compilers */
+  int numMoves=0,*shared_moves=initMoves(&numMoves,ap.np,nPools,primerMove_depends_on,fix_to_pool); /* =0 to stop warnings on old compilers */
   if(memFail(shared_moves,_memFail)) return NULL;
   if(!numMoves) {
     fputs("Can't move anything!\n",stderr);
@@ -563,7 +633,7 @@ int* split_into_pools(AllPrimers ap,int nPools,int timeLimit,PS_cache cache,int 
   #if PARALLELIZE_POOLSPLIT && defined(_OPENMP)
   #pragma omp parallel
   #endif
-  poolsplit_thread(shared_moves,ap,nPools,numMoves,primerMove_depends_on,scores,limitTime,bestPools,table, &bestPools_init_yet,&gBadLast,&totalIterations,&lastOutputTime,&overlaps,&just_printed_counts,&threads_needing_to_reset_iter,maxCount);
+  poolsplit_thread(shared_moves,ap,nPools,numMoves,primerMove_depends_on,fix_to_pool,scores,limitTime,bestPools,table, &bestPools_init_yet,&gBadLast,&totalIterations,&lastOutputTime,&overlaps,&just_printed_counts,&threads_needing_to_reset_iter,maxCount);
   signal(SIGINT, SIG_DFL);
   if(!just_printed_counts) {
     fputs("... looks like this is the best I can do:\n",stderr);
@@ -589,20 +659,27 @@ int suggest_num_pools(AllPrimers ap,PS_cache cache,const float *table) {
   /* Apply a simple threshold-based allocation just for
      suggesting a number of pools */
   int threshold = table ? 14 : 7; /* dG -7 or score 7.  TODO: customise?  but this function is for when the user is not sure, so perhaps we'd best hard-code the threshold */
-  int nPools = ap.np/2;
+  int nPools = ap.np; /* worst case is none of the primers are paired (unpaired primers could hang randomise_pools before v1.42 because this line said ap.np/2) */
   int *scores = cache.scores; if(!scores) return 0;
   int *primerMove_depends_on = cache.primerMove_depends_on;
+  int *fix_to_pool = cache.fix_to_pool;
   ULL *bContrib = malloc(ap.np*nPools*sizeof(ULL));
   int *poolCounts=malloc(nPools*sizeof(int));
   int *pools = malloc(ap.np*sizeof(int));
   if(memFail(bContrib,poolCounts,pools,_memFail))
     return 0;
-  randomise_pools(ap.np,primerMove_depends_on,scores,nPools,pools,bContrib,poolCounts,1); /* puts 1 set in each pool */
+  randomise_pools(ap.np,primerMove_depends_on,fix_to_pool,scores,nPools,pools,bContrib,poolCounts,1); /* puts 0 or 1 set in each pool (after the fixed ones) */
   int suggest_nPools = 1;
   int primer; for (primer=0; primer<ap.np; primer++) if (primerMove_depends_on[primer]==-1) {
-      int destPool; for (destPool=0; destPool < suggest_nPools; destPool++) if(maxScoreOfBadness(bContrib[primerAndPool_to_contribOffset(primer,destPool,nPools)]) <= threshold) break; /* find first pool it will 'fit' in */
-      if (destPool == suggest_nPools) suggest_nPools++;
-      if (pools[primer] != destPool) make_a_move(primerAndDest_to_moveNo(primer,destPool,nPools,pools),ap.np,scores,primerMove_depends_on,nPools,pools,bContrib,poolCounts,ap.np);
+      if (fix_to_pool[primer]==-1) {
+        int destPool; for (destPool=0; destPool < suggest_nPools; destPool++) if(maxScoreOfBadness(bContrib[primerAndPool_to_contribOffset(primer,destPool,nPools)]) <= threshold) break; /* find first pool it will 'fit' in */
+        if (destPool == suggest_nPools) suggest_nPools++;
+        if (pools[primer] != destPool) make_a_move(primerAndDest_to_moveNo(primer,destPool,nPools,pools),ap.np,scores,primerMove_depends_on,nPools,pools,bContrib,poolCounts,ap.np);
+      } else if (fix_to_pool[primer] >= suggest_nPools) {
+        /* must have at least as many for the fixed-pool primers
+         (and fix_to_pool starts numbering at 0, so +1 of course) */
+        suggest_nPools = fix_to_pool[primer] + 1;
+      }
   }
   free(bContrib); free(pools); free(poolCounts);
   return suggest_nPools;

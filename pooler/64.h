@@ -1,14 +1,17 @@
 /*
-# This file is part of Primer Pooler v1.41 (c) 2016-18 Silas S. Brown.  For Wen.
-# 
-# This program is free software; you can redistribute and
-# modify it under the terms of the General Public License
-# as published by the Free Software Foundation; either
-# version 3 of the License, or any later version.
-#
-# This program is distributed in the hope that it will be
-# useful, but WITHOUT ANY WARRANTY.  See the GNU General
-# Public License for more details.
+This file is part of Primer Pooler (c) Silas S. Brown.  For Wen.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 /* Anything in sixty four dot h calls sixty four bit funcs
    and 128.h is auto-generated: rplace w.128 throughout
@@ -591,7 +594,7 @@ static int pCounts64(const MaybeDegeneratePrimer64 *forward,const MaybeDegenerat
   int first = 1;
   for(i=0; i<=maxS; i++)
     fprintf(stderr,"%s%d\t%d",first?((first=0),""):"\n",i,counts[i]);
-  if(other) fprintf(stderr,"%sOverlaps\t%d",first?((first=0),""):"\n",other);
+  if(other) fprintf(stderr,"%sOverlaps\t%d",first?"":"\n",other);
   return other;
 }
 static void printBonds64(const MaybeDegeneratePrimer64 *forward,const MaybeDegeneratePrimer64 *backward,int np,FILE *f,int threshold,char* *names,const int *pools) {
@@ -862,7 +865,7 @@ static int dGpCounts64(int np,const int *pools,const int *precalcScores,FILE *f)
       fprintf(f,"%s%.3g\t%d",first?((first=0),""):"\n",((float)(-i))/2.0,counts[i]);
     }
   int other=counts[0x4000]; free(counts);
-  if(other) fprintf(f,"%sOverlaps\t%d",first?((first=0),""):"\n",other);
+  if(other) fprintf(f,"%sOverlaps\t%d",first?"":"\n",other);
   if(f!=stdout && f!=stderr) fclose(f);
   return other;
 }

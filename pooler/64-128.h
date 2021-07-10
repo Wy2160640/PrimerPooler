@@ -1,14 +1,17 @@
 /*
-# This file is part of Primer Pooler v1.41 (c) 2016-18 Silas S. Brown.  For Wen.
-# 
-# This program is free software; you can redistribute and
-# modify it under the terms of the General Public License
-# as published by the Free Software Foundation; either
-# version 3 of the License, or any later version.
-#
-# This program is distributed in the hope that it will be
-# useful, but WITHOUT ANY WARRANTY.  See the GNU General
-# Public License for more details.
+This file is part of Primer Pooler (c) Silas S. Brown.  For Wen.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 /* thirty-two to sixty-four dot h is automatically generated
    from sixty-four to one-hundred-and-twenty-eight dot h,
@@ -79,13 +82,13 @@ AllPrimers loadFASTA(FILE *f) {
 }
 void addTags(AllPrimers ap) {
   int i;
-  if(ap.maxLen <= 64)
+  if(ap.maxLen <= 64) {
     for(i=0; i<ap.np; i++) if(ap.whichTag[i]>=0) {
       MaybeDegeneratePrimer64 tag=ap.tags.p64[ap.whichTag[i]];
       MaybeDegeneratePrimerTag64(ap.forward.p64+i,tag);
       MaybeDegeneratePrimerTag64B(ap.backward.p64+i,tag);
     }
-  else
+  } else
     for(i=0; i<ap.np; i++) if(ap.whichTag[i]>=0) {
       MaybeDegeneratePrimer128 tag=ap.tags.p128[ap.whichTag[i]];
       MaybeDegeneratePrimerTag128(ap.forward.p128+i,tag);
@@ -94,13 +97,13 @@ void addTags(AllPrimers ap) {
 }
 void removeTags(AllPrimers ap) {
   int i;
-  if(ap.maxLen <= 64)
+  if(ap.maxLen <= 64) {
     for(i=0; i<ap.np; i++) if(ap.whichTag[i]>=0) {
       MaybeDegeneratePrimer64 tag=ap.tags.p64[ap.whichTag[i]];
       MaybeDegeneratePrimerRmTag64(ap.forward.p64+i,tag);
       MaybeDegeneratePrimerRmTag64B(ap.backward.p64+i,tag);
     }
-  else
+  } else
     for(i=0; i<ap.np; i++) if(ap.whichTag[i]>=0) {
       MaybeDegeneratePrimer128 tag=ap.tags.p128[ap.whichTag[i]];
       MaybeDegeneratePrimerRmTag128(ap.forward.p128+i,tag);
